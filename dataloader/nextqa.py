@@ -6,9 +6,11 @@ import json
 import numpy
 
 class NextQA(BaseDataset):
-    def __init__(self, args=None, tokenizer=None, split='train'):
+    def __init__(self, args=None, tokenizer=None, split='train', view_index=0, num_views=1):
         super().__init__(args, tokenizer, split)
         self.split =split
+        self.view_index = view_index
+        self.num_views = num_views  # User's requested K
         self.data = pd.read_csv(f'./data/nextqa/{split}.csv')
 
 
@@ -49,9 +51,30 @@ class NextQA(BaseDataset):
             # video = video.repeat(,1)
         
         if len(video) > self.max_feats:
+            # Multi-View Temporal Ensembling Logic
+            L = len(video)
+            M = self.max_feats
+            S = L / M  # Float stride
+            
+            # Dynamic View Adjustment: Only reduce K if S < requested K
+            # K is pre-determined by user, we only clamp if stride is too small
+            K = self.num_views
+            if S < K:
+                K_prime = max(1, int(S))  # Reduce to floor(S)
+            else:
+                K_prime = K  # Use user's requested K
+            
+            # Clamp view_index to valid range
+            k = self.view_index % K_prime
+            
+            # Calculate frame offset (delta_k) for this specific view
+            delta_k = int(k * (S / K_prime))
+            
             sampled = []
             for j in range(self.max_feats):
-                sampled.append(video[(j * len(video)) // self.max_feats])
+                # Calculate index: floor(j * S + delta_k)
+                idx = min(int(j * S + delta_k), L - 1)
+                sampled.append(video[idx])
             video = torch.stack(sampled)
             video_len = self.max_feats
         elif len(video) < self.max_feats:
